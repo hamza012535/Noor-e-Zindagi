@@ -100,6 +100,12 @@ interface NoorDao {
     @Query("SELECT * FROM cached_ayahs WHERE arabicUthmani LIKE '%' || :query || '%' OR englishTranslation LIKE '%' || :query || '%' OR urduTranslation LIKE '%' || :query || '%' LIMIT 40")
     suspend fun searchCachedAyahs(query: String): List<CachedAyahEntity>
 
+    @Query("SELECT COUNT(DISTINCT surahNumber) FROM cached_ayahs")
+    fun observeCachedSurahCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM cached_ayahs")
+    fun observeCachedAyahCount(): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAyahs(ayahs: List<CachedAyahEntity>)
 

@@ -35,7 +35,15 @@ data class UserPreferencesState(
     val maghribAdjustMin: Int = 0,
     val ishaAdjustMin: Int = 0,
     val missedPrayersEnabled: Boolean = true,
-    val guestModeActive: Boolean = false
+    val guestModeActive: Boolean = false,
+    val audioPlaybackMode: String = "ARABIC_AND_URDU",
+    val reciterId: String = "ar.alafasy",
+    val recitationVolume: Float = 1.0f,
+    val ambientEnabled: Boolean = false,
+    val birdsVolume: Float = 0.35f,
+    val rainVolume: Float = 0.45f,
+    val airVolume: Float = 0.30f,
+    val autoPlayNextAyah: Boolean = true
 )
 
 class UserPreferencesDataStore(private val context: Context) {
@@ -57,6 +65,14 @@ class UserPreferencesDataStore(private val context: Context) {
         val ISHA_ADJ = intPreferencesKey("isha_adj")
         val MISSED_PRAYERS_ENABLED = booleanPreferencesKey("missed_prayers_enabled")
         val GUEST_MODE = booleanPreferencesKey("guest_mode_active")
+        val AUDIO_MODE = stringPreferencesKey("audio_playback_mode")
+        val RECITER_ID = stringPreferencesKey("reciter_id")
+        val RECITATION_VOLUME = floatPreferencesKey("recitation_volume")
+        val AMBIENT_ENABLED = booleanPreferencesKey("ambient_enabled")
+        val BIRDS_VOLUME = floatPreferencesKey("birds_volume")
+        val RAIN_VOLUME = floatPreferencesKey("rain_volume")
+        val AIR_VOLUME = floatPreferencesKey("air_volume")
+        val AUTO_PLAY_NEXT_AYAH = booleanPreferencesKey("auto_play_next_ayah")
     }
 
     val preferencesFlow: Flow<UserPreferencesState> = context.noorPrefsDataStore.data.map { prefs ->
@@ -77,7 +93,15 @@ class UserPreferencesDataStore(private val context: Context) {
             maghribAdjustMin = prefs[Keys.MAGHRIB_ADJ] ?: 0,
             ishaAdjustMin = prefs[Keys.ISHA_ADJ] ?: 0,
             missedPrayersEnabled = prefs[Keys.MISSED_PRAYERS_ENABLED] ?: true,
-            guestModeActive = prefs[Keys.GUEST_MODE] ?: false
+            guestModeActive = prefs[Keys.GUEST_MODE] ?: false,
+            audioPlaybackMode = prefs[Keys.AUDIO_MODE] ?: "ARABIC_AND_URDU",
+            reciterId = prefs[Keys.RECITER_ID] ?: "ar.alafasy",
+            recitationVolume = prefs[Keys.RECITATION_VOLUME] ?: 1.0f,
+            ambientEnabled = prefs[Keys.AMBIENT_ENABLED] ?: false,
+            birdsVolume = prefs[Keys.BIRDS_VOLUME] ?: 0.35f,
+            rainVolume = prefs[Keys.RAIN_VOLUME] ?: 0.45f,
+            airVolume = prefs[Keys.AIR_VOLUME] ?: 0.30f,
+            autoPlayNextAyah = prefs[Keys.AUTO_PLAY_NEXT_AYAH] ?: true
         )
     }
 
@@ -131,5 +155,30 @@ class UserPreferencesDataStore(private val context: Context) {
 
     suspend fun setGuestModeActive(active: Boolean) {
         context.noorPrefsDataStore.edit { it[Keys.GUEST_MODE] = active }
+    }
+
+    suspend fun setAudioPlaybackMode(mode: String) {
+        context.noorPrefsDataStore.edit { it[Keys.AUDIO_MODE] = mode }
+    }
+
+    suspend fun setReciterId(reciterId: String) {
+        context.noorPrefsDataStore.edit { it[Keys.RECITER_ID] = reciterId }
+    }
+
+    suspend fun setRecitationVolume(volume: Float) {
+        context.noorPrefsDataStore.edit { it[Keys.RECITATION_VOLUME] = volume.coerceIn(0f, 1f) }
+    }
+
+    suspend fun setAmbientSound(enabled: Boolean, birds: Float, rain: Float, air: Float) {
+        context.noorPrefsDataStore.edit {
+            it[Keys.AMBIENT_ENABLED] = enabled
+            it[Keys.BIRDS_VOLUME] = birds.coerceIn(0f, 1f)
+            it[Keys.RAIN_VOLUME] = rain.coerceIn(0f, 1f)
+            it[Keys.AIR_VOLUME] = air.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setAutoPlayNextAyah(enabled: Boolean) {
+        context.noorPrefsDataStore.edit { it[Keys.AUTO_PLAY_NEXT_AYAH] = enabled }
     }
 }

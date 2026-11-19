@@ -1,15 +1,34 @@
 package com.example.data.repository
 
+import android.content.Context
 import com.example.data.corpus.QuranCatalogData
 import com.example.data.local.CachedAyahEntity
 import com.example.data.local.NoorDao
 import com.example.data.remote.QuranApiFactory
 import com.example.model.AyahData
 import com.example.model.WordMeaning
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 class QuranRepository(private val noorDao: NoorDao) {
+
+    private val audioDownloadClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    fun observeCachedSurahCount(): Flow<Int> = noorDao.observeCachedSurahCount()
+
+    fun observeCachedAyahCount(): Flow<Int> = noorDao.observeCachedAyahCount()
 
     suspend fun getSurahAyahs(surahNumber: Int): Result<List<AyahData>> {
         // 1. Check Room offline cache first
@@ -191,6 +210,63 @@ class QuranRepository(private val noorDao: NoorDao) {
             }
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    suspend fun downloadAudioFileIfNeeded(
+        appContext: Context,
+        editionId: String,
+        globalAyahNumber: Int,
+        url: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (globalAyahNumber <= 0 || url.isBlank()) return@withContext false
+        val dir = File(appContext.filesDir, "quran_audio/$editionId")
+        if (!dir.exists()) dir.mkdirs()
+        val dest = File(dir, "$globalAyahNumber.mp3")
+        if (dest.exists() && dest.length() > 512L) return@withContext true
+
+        val tmp = File(dir, "$globalAyahNumber.mp3.tmp")
+        try {
+            val req = Request.Builder().url(url).build()
+            audioDownloadClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext false
+                val body = resp.body ?: return@withContext false
+                body.byteStream().use { input ->
+                    tmp.outputStream().use { out ->
+                        input.copyTo(out)
+                    }
+                }
+            }
+            if (tmp.exists() && tmp.length() > 512L) {
+                tmp.renameTo(dest)
+                true
+            } else {
+                tmp.delete()
+                false
+            }
+        } catch (_: Exception) {
+            tmp.delete()
+            false
+        }
+    }
+
+    fun computeOfflineAudioSizeMb(appContext: Context): Float {
+        val root = File(appContext.filesDir, "quran_audio")
+        if (!root.exists()) return 0f
+        val bytes = root.walkTopDown().filter { it.isFile && it.name.endsWith(".mp3") }.sumOf { it.length() }
+        return bytes / (1024f * 1024f)
+    }
+
+    fun countOfflineAudioFiles(appContext: Context): Int {
+        val root = File(appContext.filesDir, "quran_audio")
+        if (!root.exists()) return 0
+        return root.walkTopDown().count { it.isFile && it.name.endsWith(".mp3") && it.length() > 512L }
+    }
+
+    fun clearOfflineAudioCache(appContext: Context) {
+        val root = File(appContext.filesDir, "quran_audio")
+        if (root.exists()) {
+            root.deleteRecursively()
         }
     }
 }

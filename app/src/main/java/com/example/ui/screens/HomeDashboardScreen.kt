@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.audio.AmbientSoundState
 import com.example.audio.AudioPlaybackState
 import com.example.data.corpus.AzkarDuaData
 import com.example.data.corpus.HadithLibraryData
@@ -90,14 +92,16 @@ fun HomeDashboardScreen(
     uiState: NoorUiSnapshot,
     userDisplayName: String,
     audioState: AudioPlaybackState,
+    ambientState: AmbientSoundState = AmbientSoundState(),
     onToggleChecklist: (String) -> Unit,
-    onPlayAudio: (String, String, String) -> Unit,
+    onPlayAudioWithUrdu: (String, String, String?, String?, String) -> Unit,
     onNavigateTab: (String) -> Unit,
     onOpenPrayerTimes: () -> Unit,
     onOpenHadith: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenAiAssistant: () -> Unit,
-    onOpenMediaOcr: () -> Unit
+    onOpenMediaOcr: () -> Unit,
+    onOpenAudioStudio: () -> Unit = {}
 ) {
     val dayOfYear = remember { Calendar.getInstance().get(Calendar.DAY_OF_YEAR) }
     val dailyAyah = remember(dayOfYear) { QuranCatalogData.getDailyAyah(dayOfYear) }
@@ -105,6 +109,7 @@ fun HomeDashboardScreen(
     val dailyDua = remember(dayOfYear) { AzkarDuaData.dailyDua(dayOfYear) }
     val lang = uiState.prefs.language
     val schedule = uiState.prayerSchedule
+    val qariShort = audioState.reciter.displayName.substringAfterLast(' ')
 
     val quickTiles = listOf(
         QuickTileData("Prayer Times", "Salah & Qibla times", Icons.Rounded.AccessTime, "quick_prayer_times", onOpenPrayerTimes),
@@ -113,6 +118,13 @@ fun HomeDashboardScreen(
         QuickTileData("Hijri Calendar", "Occasions & fasting", Icons.Rounded.CalendarMonth, "quick_calendar", onOpenCalendar),
         QuickTileData("Sunnah Routine", "Dawn to bedtime", Icons.Rounded.Checklist, "quick_sunnah") { onNavigateTab(NoorRoutes.SUNNAH) },
         QuickTileData("Quran Reader", "114 Surahs & words", Icons.Rounded.AutoStories, "quick_quran") { onNavigateTab(NoorRoutes.QURAN) },
+        QuickTileData(
+            title = "Qari & Ambience",
+            subtitle = if (ambientState.hasActiveSound) "$qariShort • Nature On" else "$qariShort • Birds/Rain/Air",
+            icon = Icons.Rounded.Tune,
+            testTag = "quick_audio_studio",
+            onClick = onOpenAudioStudio
+        ),
         QuickTileData("Visual & OCR", "Scan & verify text", Icons.Rounded.DocumentScanner, "quick_ocr", onOpenMediaOcr),
         QuickTileData("Islamic AI", "Verified guidance", Icons.Rounded.AutoAwesome, "quick_ai", onOpenAiAssistant)
     )
@@ -404,7 +416,7 @@ fun HomeDashboardScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text("Daily Quran Ayah", style = MaterialTheme.typography.titleLarge)
                             Text(
                                 "Surah ${QuranCatalogData.getSurahInfo(dailyAyah.surahNumber).nameEnglish} (${dailyAyah.surahNumber}:${dailyAyah.ayahNumber})",
@@ -412,23 +424,39 @@ fun HomeDashboardScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
-                        IconButton(
-                            onClick = {
-                                onPlayAudio(
-                                    ayahAudioId,
-                                    "Surah ${dailyAyah.surahNumber}:${dailyAyah.ayahNumber}",
-                                    dailyAyah.audioUrl
+                        Row {
+                            IconButton(
+                                onClick = onOpenAudioStudio,
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("home_daily_ayah_studio")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Tune,
+                                    contentDescription = "Change Qari or background nature sounds",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            },
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .testTag("home_daily_ayah_audio")
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
-                                contentDescription = "Play Ayah audio",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            }
+                            IconButton(
+                                onClick = {
+                                    onPlayAudioWithUrdu(
+                                        ayahAudioId,
+                                        "Surah ${dailyAyah.surahNumber}:${dailyAyah.ayahNumber} (${audioState.mode.label})",
+                                        dailyAyah.audioUrl,
+                                        dailyAyah.urduAudioUrl,
+                                        dailyAyah.urduTranslation
+                                    )
+                                },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("home_daily_ayah_audio")
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                                    contentDescription = "Play Ayah audio",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                     ArabicScriptText(

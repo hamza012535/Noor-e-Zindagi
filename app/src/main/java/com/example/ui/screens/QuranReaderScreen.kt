@@ -18,17 +18,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.EmojiNature
 import androidx.compose.material.icons.rounded.ListAlt
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
@@ -36,12 +42,15 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -51,6 +60,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +74,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.audio.AmbientSoundState
+import com.example.audio.AudioPlaybackMode
 import com.example.audio.AudioPlaybackState
 import com.example.data.corpus.QuranCatalogData
 import com.example.model.AyahData
@@ -83,16 +95,20 @@ import com.example.ui.viewmodel.QuranReaderState
 fun QuranReaderScreen(
     viewModel: NoorViewModel,
     uiState: NoorUiSnapshot,
-    audioState: AudioPlaybackState
+    audioState: AudioPlaybackState,
+    ambientState: AmbientSoundState = AmbientSoundState(),
+    onOpenAudioStudio: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val selectedSurahNum by viewModel.selectedSurah.collectAsStateWithLifecycle()
     val quranState by viewModel.quranState.collectAsStateWithLifecycle()
     val searchResults by viewModel.quranSearchResults.collectAsStateWithLifecycle()
+    val offlineState by viewModel.offlineDownloadState.collectAsStateWithLifecycle()
 
     val surahInfo = remember(selectedSurahNum) { QuranCatalogData.getSurahInfo(selectedSurahNum) }
     var showSurahPicker by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showOfflineSheet by remember { mutableStateOf(false) }
     var showSearchMode by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedWord by remember { mutableStateOf<WordMeaning?>(null) }
@@ -127,6 +143,20 @@ fun QuranReaderScreen(
                         )
                     }
                     Row {
+                        IconButton(
+                            onClick = { showOfflineSheet = true },
+                            modifier = Modifier.minimumInteractiveComponentSize().testTag("quran_offline_manager_btn")
+                        ) {
+                            Icon(
+                                imageVector = if (offlineState.cachedSurahsCount >= 114) Icons.Rounded.DownloadDone else Icons.Rounded.CloudDownload,
+                                contentDescription = "Offline Quran & Audio Download Manager",
+                                tint = if (offlineState.isDownloading || offlineState.cachedSurahsCount >= 114) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                }
+                            )
+                        }
                         IconButton(
                             onClick = { showSearchMode = !showSearchMode },
                             modifier = Modifier.minimumInteractiveComponentSize().testTag("quran_search_toggle")
@@ -180,6 +210,79 @@ fun QuranReaderScreen(
                         modifier = Modifier.fillMaxWidth().testTag("quran_search_input")
                     )
                 }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    AudioPlaybackMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = audioState.mode == mode,
+                            onClick = { viewModel.setAudioPlaybackMode(mode) },
+                            label = { Text(mode.label, style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.testTag("quran_audio_mode_${mode.name.lowercase()}")
+                        )
+                    }
+                    FilterChip(
+                        selected = ambientState.hasActiveSound,
+                        onClick = onOpenAudioStudio,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (ambientState.hasActiveSound) Icons.Rounded.EmojiNature else Icons.Rounded.RecordVoiceOver,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        label = {
+                            val shortQari = audioState.reciter.displayName.substringAfterLast(' ')
+                            Text(
+                                text = if (ambientState.hasActiveSound) "$shortQari • Nature On" else "Qari: $shortQari & Sounds",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        },
+                        modifier = Modifier.testTag("quran_reciter_ambience_btn")
+                    )
+                    FilterChip(
+                        selected = uiState.prefs.autoPlayNextAyah,
+                        onClick = { viewModel.setAutoPlayNextAyah(!uiState.prefs.autoPlayNextAyah) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.SkipNext,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = if (uiState.prefs.autoPlayNextAyah) "Auto-Next: On" else "Auto-Next: Off",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        },
+                        modifier = Modifier.testTag("quran_auto_next_chip")
+                    )
+                    FilterChip(
+                        selected = offlineState.isDownloading || offlineState.cachedSurahsCount >= 114,
+                        onClick = { showOfflineSheet = true },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (offlineState.cachedSurahsCount >= 114) Icons.Rounded.DownloadDone else Icons.Rounded.CloudDownload,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        label = {
+                            val labelText = when {
+                                offlineState.isDownloading -> "Downloading ${offlineState.currentSurah}/114"
+                                offlineState.cachedSurahsCount >= 114 -> "Offline Ready (114)"
+                                else -> "Offline (${offlineState.cachedSurahsCount}/114)"
+                            }
+                            Text(text = labelText, style = MaterialTheme.typography.labelSmall)
+                        },
+                        modifier = Modifier.testTag("quran_offline_chip")
+                    )
+                }
             }
         }
 
@@ -203,11 +306,7 @@ fun QuranReaderScreen(
                         audioState = audioState,
                         onWordTap = { selectedWord = it },
                         onPlayAudio = {
-                            viewModel.toggleAudio(
-                                "ayah_${ayah.surahNumber}_${ayah.ayahNumber}",
-                                "Surah ${ayah.surahNumber}:${ayah.ayahNumber}",
-                                ayah.audioUrl
-                            )
+                            viewModel.playAyahWithAutoContinue(ayah, searchResults)
                         },
                         onBookmark = {
                             viewModel.toggleBookmark(
@@ -258,7 +357,17 @@ fun QuranReaderScreen(
                     }
                 }
                 is QuranReaderState.Success -> {
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(audioState.activeId, state.ayahs) {
+                        val activeId = audioState.activeId ?: return@LaunchedEffect
+                        val idx = state.ayahs.indexOfFirst { "ayah_${it.surahNumber}_${it.ayahNumber}" == activeId }
+                        if (idx >= 0) {
+                            listState.animateScrollToItem(idx + 1)
+                        }
+                    }
+
                     LazyColumn(
+                        state = listState,
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize()
@@ -303,11 +412,7 @@ fun QuranReaderScreen(
                                 audioState = audioState,
                                 onWordTap = { selectedWord = it },
                                 onPlayAudio = {
-                                    viewModel.toggleAudio(
-                                        "ayah_${ayah.surahNumber}_${ayah.ayahNumber}",
-                                        "Surah ${ayah.surahNumber}:${ayah.ayahNumber}",
-                                        ayah.audioUrl
-                                    )
+                                    viewModel.playAyahWithAutoContinue(ayah, state.ayahs)
                                 },
                                 onBookmark = {
                                     viewModel.toggleBookmark(
@@ -493,6 +598,122 @@ fun QuranReaderScreen(
             }
         }
     }
+
+    // One-Tap Offline All 114 Surahs & Audio Bottom Sheet
+    if (showOfflineSheet) {
+        ModalBottomSheet(onDismissRequest = { showOfflineSheet = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Offline Quran & Audio Pack", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = "Save all 114 Surahs (Uthmani Arabic, English, Urdu & Word-by-Word) and optional MP3 recitations for 100% offline reading & listening.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Cached: ${offlineState.cachedSurahsCount} / 114 Surahs • ${offlineState.cachedAyahsCount} / 6,236 Ayahs",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "Audio cached: ${offlineState.offlineAudioFilesCount} clips (${"%.1f".format(offlineState.offlineAudioMb)} MB)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+
+                if (offlineState.isDownloading) {
+                    LinearProgressIndicator(
+                        progress = { (offlineState.currentSurah / 114f).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().testTag("offline_download_progress")
+                    )
+                    Text(
+                        text = offlineState.statusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (offlineState.includeAudio && offlineState.totalAudioFilesTarget > 0) {
+                        Text(
+                            text = "Audio clips downloaded: ${offlineState.downloadedAudioFiles} / ${offlineState.totalAudioFilesTarget}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.cancelOfflineQuranDownload() },
+                        modifier = Modifier.fillMaxWidth().testTag("cancel_offline_download_btn")
+                    ) {
+                        Text("Pause / Cancel Download")
+                    }
+                } else {
+                    if (offlineState.statusMessage.isNotBlank()) {
+                        Text(
+                            text = offlineState.statusMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            viewModel.startOfflineQuranDownload(
+                                includeArabicAudio = true,
+                                includeUrduAudio = true
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("download_all_quran_audio_btn")
+                    ) {
+                        Icon(Icons.Rounded.CloudDownload, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Download All 114 Surahs + Audio (Arabic & Urdu)")
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            viewModel.startOfflineQuranDownload(
+                                includeArabicAudio = true,
+                                includeUrduAudio = false
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("download_all_quran_arabic_btn")
+                    ) {
+                        Text("Download All 114 + Arabic Audio (${audioState.reciter.displayName.substringAfterLast(' ')})")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.startOfflineQuranDownload(
+                                includeArabicAudio = false,
+                                includeUrduAudio = false
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("download_all_quran_text_btn")
+                    ) {
+                        Text("Download All 114 Surahs (Text Only — Fast)")
+                    }
+                    if (offlineState.offlineAudioFilesCount > 0) {
+                        TextButton(
+                            onClick = { viewModel.clearOfflineAudioCache() },
+                            modifier = Modifier.align(Alignment.End).testTag("clear_offline_audio_btn")
+                        ) {
+                            Text("Clear Downloaded Audio MP3s")
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -510,11 +731,14 @@ private fun AyahCard(
 ) {
     val isBookmarked = uiState.bookmarks.any { it.itemType == "quran" && it.refId == "${ayah.surahNumber}:${ayah.ayahNumber}" }
     val audioId = "ayah_${ayah.surahNumber}_${ayah.ayahNumber}"
-    val isPlaying = audioState.activeId == audioId && audioState.isPlaying
+    val isPlaying = audioState.activeId == audioId && (audioState.isPlaying || audioState.isBuffering)
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        border = BorderStroke(
+            width = if (isPlaying) 2.dp else 1.dp,
+            color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+        ),
         shape = MaterialTheme.shapes.large
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

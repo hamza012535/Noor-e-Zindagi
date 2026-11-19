@@ -35,6 +35,21 @@ data class HabitReportStats(
     val fastingDaysThisMonth: Int = 0
 )
 
+data class OfflineQuranDownloadState(
+    val isDownloading: Boolean = false,
+    val currentSurah: Int = 0,
+    val totalSurahs: Int = 114,
+    val currentSurahName: String = "",
+    val downloadedAudioFiles: Int = 0,
+    val totalAudioFilesTarget: Int = 0,
+    val includeAudio: Boolean = true,
+    val cachedSurahsCount: Int = 0,
+    val cachedAyahsCount: Int = 0,
+    val offlineAudioFilesCount: Int = 0,
+    val offlineAudioMb: Float = 0f,
+    val statusMessage: String = ""
+)
+
 data class NoorUiSnapshot(
     val prefs: UserPreferencesState = UserPreferencesState(),
     val todayDateKey: String = "",

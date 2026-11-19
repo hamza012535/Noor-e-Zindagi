@@ -1,10 +1,15 @@
 package com.example.ui.viewmodel
 
+import android.content.Context
 import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.audio.AmbientSoundState
+import com.example.audio.AudioPlaybackMode
 import com.example.audio.AudioPlaybackState
-import com.example.audio.QuranAudioPlayer
+import com.example.audio.NoorMediaController
+import com.example.audio.QuranReciter
+import com.example.data.corpus.QuranCatalogData
 import com.example.data.corpus.SunnahRoutineRepository
 import com.example.data.local.LocalChecklistEntity
 import com.example.data.local.LocalReminderEntity
@@ -19,6 +24,11 @@ import com.example.model.AppLanguage
 import com.example.model.AyahData
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,12 +39,15 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
 
 class NoorViewModel(
+    private val appContext: Context,
     private val currentUserId: String?,
     private val userDisplayName: String,
     private val userEmail: String,
@@ -43,8 +56,10 @@ class NoorViewModel(
     private val quranRepo: QuranRepository,
     private val prayerRepo: PrayerCalendarRepository,
     private val aiRepo: IslamicAiRepository,
-    private val audioPlayer: QuranAudioPlayer
+    private val mediaController: NoorMediaController
 ) : ViewModel() {
+
+    private val audioPlayer = mediaController.audioPlayer
 
     private val _todayDateKey = MutableStateFlow(todayKey())
     private val _prayerSchedule = MutableStateFlow<com.example.model.PrayerDaySchedule?>(null)
@@ -87,6 +102,26 @@ class NoorViewModel(
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
     val audioState: StateFlow<AudioPlaybackState> = audioPlayer.state
+    val ambientState: StateFlow<AmbientSoundState> = mediaController.ambientState
+
+    private val _offlineDownloadProgress = MutableStateFlow(OfflineQuranDownloadState())
+    val offlineDownloadState: StateFlow<OfflineQuranDownloadState> = combine(
+        _offlineDownloadProgress,
+        quranRepo.observeCachedSurahCount(),
+        quranRepo.observeCachedAyahCount()
+    ) { progress, cachedSurahs, cachedAyahs ->
+        progress.copy(
+            cachedSurahsCount = cachedSurahs,
+            cachedAyahsCount = cachedAyahs,
+            offlineAudioFilesCount = quranRepo.countOfflineAudioFiles(appContext),
+            offlineAudioMb = quranRepo.computeOfflineAudioSizeMb(appContext)
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000L),
+        initialValue = OfflineQuranDownloadState()
+    )
+    private var offlineDownloadJob: Job? = null
 
     private val checklistsFlow = syncRepo.observeChecklistHistory(currentUserId)
         .catch { err -> handleStreamError("checklist", err); emit(emptyList()) }
@@ -186,6 +221,16 @@ class NoorViewModel(
         viewModelScope.launch {
             syncRepo.ensureDefaultRemindersSeeded()
             val prefs = prefsStore.preferencesFlow.first()
+            audioPlayer.setMode(AudioPlaybackMode.fromName(prefs.audioPlaybackMode))
+            audioPlayer.setReciter(QuranReciter.fromEditionId(prefs.reciterId))
+            audioPlayer.setRecitationVolume(prefs.recitationVolume)
+            val initialAmbient = AmbientSoundState(
+                isEnabled = prefs.ambientEnabled,
+                birdsVolume = prefs.birdsVolume,
+                rainVolume = prefs.rainVolume,
+                airVolume = prefs.airVolume
+            )
+            mediaController.updateAmbientState(initialAmbient)
             if (!currentUserId.isNullOrBlank()) {
                 syncRepo.ensureUserProfile(currentUserId, userDisplayName, userEmail, prefs)
             }
@@ -368,6 +413,216 @@ class NoorViewModel(
 
     fun toggleAudio(id: String, title: String, url: String) {
         audioPlayer.togglePlay(id, title, url)
+        mediaController.syncForegroundService()
+    }
+
+    fun toggleAudioWithUrdu(
+        id: String,
+        title: String,
+        arabicUrl: String?,
+        urduUrl: String?,
+        urduText: String
+    ) {
+        audioPlayer.togglePlayWithUrdu(id, title, arabicUrl, urduUrl, urduText)
+        mediaController.syncForegroundService()
+    }
+
+    fun togglePlayPauseAudio() {
+        audioPlayer.togglePlayPause()
+        mediaController.syncForegroundService()
+    }
+
+    fun stopAllAudio() {
+        mediaController.stopAllFromMediaSession()
+    }
+
+    fun playAyahWithAutoContinue(ayah: AyahData, ayahsInSurah: List<AyahData>) {
+        val currentIndex = ayahsInSurah.indexOfFirst {
+            it.surahNumber == ayah.surahNumber && it.ayahNumber == ayah.ayahNumber
+        }
+        val nextAyah = if (currentIndex >= 0 && currentIndex + 1 < ayahsInSurah.size) {
+            ayahsInSurah[currentIndex + 1]
+        } else {
+            null
+        }
+        viewModelScope.launch {
+            prefsStore.setLastReadPosition(ayah.surahNumber, ayah.ayahNumber)
+        }
+        audioPlayer.togglePlayWithUrdu(
+            id = "ayah_${ayah.surahNumber}_${ayah.ayahNumber}",
+            title = "Surah ${ayah.surahNumber}:${ayah.ayahNumber}",
+            arabicUrl = ayah.audioUrl,
+            urduUrl = ayah.urduAudioUrl,
+            urduText = ayah.urduTranslation,
+            onFinished = {
+                if (uiState.value.prefs.autoPlayNextAyah && nextAyah != null) {
+                    playAyahWithAutoContinue(nextAyah, ayahsInSurah)
+                }
+            }
+        )
+        mediaController.syncForegroundService()
+    }
+
+    fun startOfflineQuranDownload(includeArabicAudio: Boolean, includeUrduAudio: Boolean) {
+        if (offlineDownloadJob?.isActive == true) return
+        val reciter = audioState.value.reciter
+        val includeAnyAudio = includeArabicAudio || includeUrduAudio
+        val totalAudioTarget = when {
+            includeArabicAudio && includeUrduAudio -> 6236 * 2
+            includeArabicAudio || includeUrduAudio -> 6236
+            else -> 0
+        }
+
+        offlineDownloadJob = viewModelScope.launch(Dispatchers.IO) {
+            var completedAudio = 0
+            val semaphore = Semaphore(4)
+            _offlineDownloadProgress.value = OfflineQuranDownloadState(
+                isDownloading = true,
+                currentSurah = 0,
+                totalSurahs = 114,
+                currentSurahName = "Preparing...",
+                downloadedAudioFiles = 0,
+                totalAudioFilesTarget = totalAudioTarget,
+                includeAudio = includeAnyAudio,
+                statusMessage = "Starting offline download of all 114 Surahs..."
+            )
+            try {
+                for (surahNum in 1..114) {
+                    val info = QuranCatalogData.getSurahInfo(surahNum)
+                    _offlineDownloadProgress.value = _offlineDownloadProgress.value.copy(
+                        currentSurah = surahNum,
+                        currentSurahName = info.nameEnglish,
+                        statusMessage = "Downloading Surah $surahNum/114: ${info.nameEnglish}..."
+                    )
+                    val res = quranRepo.getSurahAyahs(surahNum)
+                    val ayahs = res.getOrNull().orEmpty()
+
+                    if (includeAnyAudio && ayahs.isNotEmpty()) {
+                        coroutineScope {
+                            val jobs = ayahs.flatMap { ayah ->
+                                buildList {
+                                    if (includeArabicAudio && ayah.globalAyahNumber in 1..6236) {
+                                        add(async {
+                                            semaphore.withPermit {
+                                                val arUrl = "https://cdn.islamic.network/quran/audio/128/${reciter.editionId}/${ayah.globalAyahNumber}.mp3"
+                                                if (quranRepo.downloadAudioFileIfNeeded(appContext, reciter.editionId, ayah.globalAyahNumber, arUrl)) {
+                                                    completedAudio++
+                                                }
+                                            }
+                                        })
+                                    }
+                                    if (includeUrduAudio && ayah.globalAyahNumber in 1..6236) {
+                                        add(async {
+                                            semaphore.withPermit {
+                                                val urUrl = "https://cdn.islamic.network/quran/audio/64/ur.khan/${ayah.globalAyahNumber}.mp3"
+                                                if (quranRepo.downloadAudioFileIfNeeded(appContext, "ur.khan", ayah.globalAyahNumber, urUrl)) {
+                                                    completedAudio++
+                                                }
+                                            }
+                                        })
+                                    }
+                                }
+                            }
+                            jobs.awaitAll()
+                        }
+                        _offlineDownloadProgress.value = _offlineDownloadProgress.value.copy(
+                            downloadedAudioFiles = completedAudio
+                        )
+                    }
+                }
+                _offlineDownloadProgress.value = OfflineQuranDownloadState(
+                    isDownloading = false,
+                    currentSurah = 114,
+                    totalSurahs = 114,
+                    currentSurahName = "Completed",
+                    downloadedAudioFiles = completedAudio,
+                    totalAudioFilesTarget = totalAudioTarget,
+                    includeAudio = includeAnyAudio,
+                    statusMessage = if (includeAnyAudio) {
+                        "All 114 Surahs & $completedAudio audio clips ready offline."
+                    } else {
+                        "All 114 Surahs text & translations saved offline."
+                    }
+                )
+            } catch (_: CancellationException) {
+                _offlineDownloadProgress.value = _offlineDownloadProgress.value.copy(
+                    isDownloading = false,
+                    statusMessage = "Offline download paused/cancelled. Already cached Surahs remain saved."
+                )
+            } catch (e: Exception) {
+                _offlineDownloadProgress.value = _offlineDownloadProgress.value.copy(
+                    isDownloading = false,
+                    statusMessage = "Download interrupted: ${e.localizedMessage ?: "Check internet connection"}"
+                )
+            }
+        }
+    }
+
+    fun cancelOfflineQuranDownload() {
+        offlineDownloadJob?.cancel()
+        offlineDownloadJob = null
+    }
+
+    fun clearOfflineAudioCache() {
+        cancelOfflineQuranDownload()
+        quranRepo.clearOfflineAudioCache(appContext)
+        _offlineDownloadProgress.value = _offlineDownloadProgress.value.copy(
+            downloadedAudioFiles = 0,
+            statusMessage = "Offline audio MP3 cache cleared. Surah texts remain cached."
+        )
+    }
+
+    fun setAutoPlayNextAyah(enabled: Boolean) {
+        viewModelScope.launch {
+            prefsStore.setAutoPlayNextAyah(enabled)
+        }
+    }
+
+    fun setAudioPlaybackMode(mode: AudioPlaybackMode) {
+        audioPlayer.setMode(mode)
+        mediaController.syncForegroundService()
+        viewModelScope.launch {
+            prefsStore.setAudioPlaybackMode(mode.name)
+        }
+    }
+
+    fun setReciter(reciter: QuranReciter) {
+        audioPlayer.setReciter(reciter)
+        mediaController.syncForegroundService()
+        viewModelScope.launch {
+            prefsStore.setReciterId(reciter.editionId)
+        }
+    }
+
+    fun setRecitationVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        audioPlayer.setRecitationVolume(clamped)
+        viewModelScope.launch {
+            prefsStore.setRecitationVolume(clamped)
+        }
+    }
+
+    fun updateAmbientSound(
+        enabled: Boolean = mediaController.ambientState.value.isEnabled,
+        birds: Float = mediaController.ambientState.value.birdsVolume,
+        rain: Float = mediaController.ambientState.value.rainVolume,
+        air: Float = mediaController.ambientState.value.airVolume
+    ) {
+        val next = AmbientSoundState(
+            isEnabled = enabled,
+            birdsVolume = birds.coerceIn(0f, 1f),
+            rainVolume = rain.coerceIn(0f, 1f),
+            airVolume = air.coerceIn(0f, 1f)
+        )
+        mediaController.updateAmbientState(next)
+        viewModelScope.launch {
+            prefsStore.setAmbientSound(next.isEnabled, next.birdsVolume, next.rainVolume, next.airVolume)
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        offlineDownloadJob?.cancel()
     }
 
     // --- PRAYER TIMES & CALENDAR ---

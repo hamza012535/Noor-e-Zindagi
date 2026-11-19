@@ -6,7 +6,7 @@ import com.example.model.WordMeaning
 
 object QuranCatalogData {
     const val EDITION_ATTRIBUTION =
-        "Arabic: Tanzil Uthmani Script (tanzil.net) • English: Saheeh International • Urdu: Fateh Muhammad Jalandhry • Word-by-Word: Quran.com API v4"
+        "Arabic: Tanzil Uthmani (Mishary Alafasy Audio) • English: Saheeh International • Urdu: Fateh Muhammad Jalandhry (Shamshad Ali Khan Urdu Audio) • Word-by-Word: Quran.com API v4"
 
     val allSurahs: List<SurahInfo> = listOf(
         SurahInfo(1, "الفاتحة", "Al-Fatihah", "Al-Fatihah", "The Opener", "کھولنے والی", "Makki", 7),

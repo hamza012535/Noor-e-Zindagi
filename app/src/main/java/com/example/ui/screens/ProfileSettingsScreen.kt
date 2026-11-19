@@ -88,16 +88,25 @@ fun ProfileSettingsScreen(
     var editingReminder by remember { mutableStateOf<LocalReminderEntity?>(null) }
     var exportedJson by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var pendingPermissionAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val notifPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            ReminderScheduler.showTestNotification(
-                context,
-                "Noor-e-Zindagi Reminders Enabled",
-                "Worship and Sunnah reminders will now gently notify you on schedule."
-            )
+            val action = pendingPermissionAction
+            pendingPermissionAction = null
+            if (action != null) {
+                action()
+            } else {
+                ReminderScheduler.showTestNotification(
+                    context,
+                    "Noor-e-Zindagi Reminders Enabled",
+                    "Worship and Sunnah reminders will now gently notify you on schedule."
+                )
+            }
+        } else {
+            pendingPermissionAction = null
         }
     }
 
@@ -105,6 +114,7 @@ fun ProfileSettingsScreen(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
+            pendingPermissionAction = onReady
             notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             onReady()
@@ -290,24 +300,45 @@ fun ProfileSettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Worship Reminders", style = MaterialTheme.typography.titleLarge)
                         }
-                        TextButton(
-                            onClick = {
-                                requestNotifPermissionIfNeeded {
-                                    ReminderScheduler.showTestNotification(
-                                        context,
-                                        "Assalamu Alaikum — Noor-e-Zindagi",
-                                        "Remember Allah with morning/evening Azkar and sincere Sunnah intentions."
-                                    )
-                                }
-                            },
-                            modifier = Modifier.testTag("test_notification_btn")
-                        ) {
-                            Text("Test Alert")
+                        Row {
+                            TextButton(
+                                onClick = {
+                                    requestNotifPermissionIfNeeded {
+                                        ReminderScheduler.showTestNotification(
+                                            context,
+                                            "Assalamu Alaikum — Noor-e-Zindagi",
+                                            "Remember Allah with morning/evening Azkar and sincere Sunnah intentions.",
+                                            soundType = "chime"
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.testTag("test_notification_btn")
+                            ) {
+                                Text("Test Alert")
+                            }
+                            TextButton(
+                                onClick = {
+                                    requestNotifPermissionIfNeeded {
+                                        ReminderScheduler.showTestNotification(
+                                            context,
+                                            "Salah Time — Custom Adhan Alert",
+                                            "Hayya 'alas-Salah — Time for prayer in Noor-e-Zindagi.",
+                                            soundType = "adhan"
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.testTag("test_adhan_btn")
+                            ) {
+                                Text("Test Adhan")
+                            }
                         }
                     }
 

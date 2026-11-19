@@ -3,6 +3,8 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,10 +22,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.EmojiNature
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -48,6 +52,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.audio.AmbientSoundState
+import com.example.audio.AudioPlaybackMode
 import com.example.audio.AudioPlaybackState
 import com.example.data.corpus.AzkarDuaData
 import com.example.model.DuaCategory
@@ -58,12 +64,25 @@ import com.example.ui.components.copyIslamicText
 import com.example.ui.components.shareIslamicText
 import com.example.ui.viewmodel.NoorUiSnapshot
 
+private fun deriveUrduQuranAudioUrl(arabicAudioUrl: String?): String? {
+    if (arabicAudioUrl.isNullOrBlank()) return null
+    val marker = "/ar.alafasy/"
+    val idx = arabicAudioUrl.indexOf(marker)
+    if (idx < 0) return null
+    val filePart = arabicAudioUrl.substring(idx + marker.length)
+    return "https://cdn.islamic.network/quran/audio/64/ur.khan/$filePart"
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AzkarDuaScreen(
     uiState: NoorUiSnapshot,
     audioState: AudioPlaybackState,
-    onPlayAudio: (String, String, String) -> Unit,
-    onToggleBookmark: (String, String, String, String, String) -> Unit
+    ambientState: AmbientSoundState = AmbientSoundState(),
+    onPlayAudioWithUrdu: (String, String, String?, String?, String) -> Unit,
+    onSetAudioMode: (AudioPlaybackMode) -> Unit,
+    onToggleBookmark: (String, String, String, String, String) -> Unit,
+    onOpenAudioStudio: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lang = uiState.prefs.language
@@ -90,11 +109,43 @@ fun AzkarDuaScreen(
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                     Text("Duas, Azkar & Tasbih", style = MaterialTheme.typography.headlineMedium)
                     Text(
-                        "14 authentic categories • Tap the counter on each card to track recitations",
+                        "14 authentic categories • Tap play for Arabic + Urdu translation audio",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        AudioPlaybackMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = audioState.mode == mode,
+                                onClick = { onSetAudioMode(mode) },
+                                label = { Text(mode.label, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                        FilterChip(
+                            selected = ambientState.hasActiveSound,
+                            onClick = onOpenAudioStudio,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (ambientState.hasActiveSound) Icons.Rounded.EmojiNature else Icons.Rounded.Tune,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = if (ambientState.hasActiveSound) "Ambience On" else "Qari & Ambience",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            },
+                            modifier = Modifier.testTag("azkar_reciter_ambience_btn")
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
@@ -136,7 +187,7 @@ fun AzkarDuaScreen(
                 val completedCount = count >= dua.recommendedCount
                 val isBookmarked = uiState.bookmarks.any { it.itemType == "dua" && it.refId == dua.id }
                 val audioId = "dua_${dua.id}"
-                val isPlaying = audioState.activeId == audioId && audioState.isPlaying
+                val isPlaying = audioState.activeId == audioId && (audioState.isPlaying || audioState.isBuffering)
 
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -164,16 +215,23 @@ fun AzkarDuaScreen(
                                 )
                             }
                             Row {
-                                if (!dua.audioUrl.isNullOrBlank()) {
-                                    IconButton(
-                                        onClick = { onPlayAudio(audioId, dua.titleEn, dua.audioUrl) },
-                                        modifier = Modifier.minimumInteractiveComponentSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isPlaying) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
-                                            contentDescription = "Play audio recitation"
+                                IconButton(
+                                    onClick = {
+                                        onPlayAudioWithUrdu(
+                                            audioId,
+                                            dua.titleEn,
+                                            dua.audioUrl,
+                                            deriveUrduQuranAudioUrl(dua.audioUrl),
+                                            dua.urduTranslation
                                         )
-                                    }
+                                    },
+                                    modifier = Modifier.minimumInteractiveComponentSize().testTag("azkar_play_${dua.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                                        contentDescription = "Play Arabic and Urdu audio",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
                                 }
                                 IconButton(
                                     onClick = {

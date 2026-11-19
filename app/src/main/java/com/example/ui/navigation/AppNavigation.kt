@@ -58,7 +58,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.example.audio.QuranAudioPlayer
+import com.example.audio.AudioPlaybackMode
+import com.example.audio.NoorMediaController
 import com.example.data.local.NoorDatabase
 import com.example.data.local.UserPreferencesDataStore
 import com.example.data.local.UserPreferencesState
@@ -72,6 +73,7 @@ import com.example.firebase.onGoogleSignInClicked
 import com.example.firebase.signOutUser
 import com.example.notifications.ReminderScheduler
 import com.example.ui.auth.AuthScreen
+import com.example.ui.components.AudioAndAmbienceSheet
 import com.example.ui.components.AudioPlaybackBanner
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.AiAssistantScreen
@@ -182,13 +184,14 @@ fun NoorRootApp() {
                 val quranRepo = remember { QuranRepository(noorDao) }
                 val prayerRepo = remember { PrayerCalendarRepository() }
                 val aiRepo = remember { IslamicAiRepository(noorDao) }
-                val audioPlayer = remember { QuranAudioPlayer() }
+                val mediaController = remember { NoorMediaController.getInstance(app) }
 
                 val factory = remember(sessionKey) {
                     object : ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : ViewModel> create(modelClass: Class<T>): T {
                             return NoorViewModel(
+                                appContext = app,
                                 currentUserId = currentUser?.uid,
                                 userDisplayName = currentUser?.displayName ?: "Believer",
                                 userEmail = currentUser?.email ?: "",
@@ -197,7 +200,7 @@ fun NoorRootApp() {
                                 quranRepo = quranRepo,
                                 prayerRepo = prayerRepo,
                                 aiRepo = aiRepo,
-                                audioPlayer = audioPlayer
+                                mediaController = mediaController
                             ) as T
                         }
                     }
@@ -230,7 +233,11 @@ fun NoorRootApp() {
                     onExitGuestToSignIn = {
                         scope.launch { prefsStore.setGuestModeActive(false) }
                     },
-                    onStopAudio = { audioPlayer.stop() }
+                    onStopAudio = {
+                        mediaController.audioPlayer.stop()
+                        mediaController.syncForegroundService()
+                    },
+                    onTogglePlayPauseAudio = viewModel::togglePlayPauseAudio
                 )
             }
         }
@@ -246,7 +253,8 @@ private fun MainAppShell(
     onSignInFromGuest: () -> Unit,
     onSignOut: () -> Unit,
     onExitGuestToSignIn: () -> Unit,
-    onStopAudio: () -> Unit
+    onStopAudio: () -> Unit,
+    onTogglePlayPauseAudio: () -> Unit
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
@@ -255,8 +263,10 @@ private fun MainAppShell(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val audioState by viewModel.audioState.collectAsStateWithLifecycle()
+    val ambientState by viewModel.ambientState.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showAudioStudioSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(snackbarMessage) {
         val msg = snackbarMessage
@@ -375,7 +385,16 @@ private fun MainAppShell(
 
                     AudioPlaybackBanner(
                         audioState = audioState,
-                        onStop = onStopAudio
+                        ambientState = ambientState,
+                        onStop = onStopAudio,
+                        onTogglePlayPause = onTogglePlayPauseAudio,
+                        onCycleMode = {
+                            val entries = AudioPlaybackMode.entries
+                            val next = entries[(audioState.mode.ordinal + 1) % entries.size]
+                            viewModel.setAudioPlaybackMode(next)
+                        },
+                        onOpenAudioStudio = { showAudioStudioSheet = true },
+                        onStopAmbient = { viewModel.updateAmbientSound(enabled = false) }
                     )
 
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -388,26 +407,32 @@ private fun MainAppShell(
                                     uiState = uiState,
                                     userDisplayName = userDisplayName,
                                     audioState = audioState,
+                                    ambientState = ambientState,
                                     onToggleChecklist = viewModel::toggleChecklistActivity,
-                                    onPlayAudio = viewModel::toggleAudio,
+                                    onPlayAudioWithUrdu = viewModel::toggleAudioWithUrdu,
                                     onNavigateTab = ::navigateTopLevel,
                                     onOpenPrayerTimes = { navController.navigate(NoorRoutes.PRAYER_TIMES) },
                                     onOpenHadith = { navController.navigate(NoorRoutes.HADITH) },
                                     onOpenCalendar = { navController.navigate(NoorRoutes.CALENDAR) },
                                     onOpenAiAssistant = { navController.navigate(NoorRoutes.AI_ASSISTANT) },
-                                    onOpenMediaOcr = { navController.navigate(NoorRoutes.MEDIA_OCR) }
+                                    onOpenMediaOcr = { navController.navigate(NoorRoutes.MEDIA_OCR) },
+                                    onOpenAudioStudio = { showAudioStudioSheet = true }
                                 )
                             }
                             composable(NoorRoutes.QURAN) {
                                 QuranReaderScreen(
                                     viewModel = viewModel,
                                     uiState = uiState,
-                                    audioState = audioState
+                                    audioState = audioState,
+                                    ambientState = ambientState,
+                                    onOpenAudioStudio = { showAudioStudioSheet = true }
                                 )
                             }
                             composable(NoorRoutes.SUNNAH) {
                                 SunnahRoutineScreen(
                                     uiState = uiState,
+                                    audioState = audioState,
+                                    onPlayAudioWithUrdu = viewModel::toggleAudioWithUrdu,
                                     onToggleChecklist = viewModel::toggleChecklistActivity,
                                     onToggleBookmark = viewModel::toggleBookmark,
                                     onAddCustomActivity = viewModel::addCustomActivity,
@@ -418,8 +443,11 @@ private fun MainAppShell(
                                 AzkarDuaScreen(
                                     uiState = uiState,
                                     audioState = audioState,
-                                    onPlayAudio = viewModel::toggleAudio,
-                                    onToggleBookmark = viewModel::toggleBookmark
+                                    ambientState = ambientState,
+                                    onPlayAudioWithUrdu = viewModel::toggleAudioWithUrdu,
+                                    onSetAudioMode = viewModel::setAudioPlaybackMode,
+                                    onToggleBookmark = viewModel::toggleBookmark,
+                                    onOpenAudioStudio = { showAudioStudioSheet = true }
                                 )
                             }
                             composable(NoorRoutes.PROFILE) {
@@ -501,6 +529,20 @@ private fun MainAppShell(
                     }
                 }
             }
+        }
+
+        if (showAudioStudioSheet) {
+            AudioAndAmbienceSheet(
+                audioState = audioState,
+                ambientState = ambientState,
+                autoPlayNextAyah = uiState.prefs.autoPlayNextAyah,
+                onSelectReciter = viewModel::setReciter,
+                onSelectAudioMode = viewModel::setAudioPlaybackMode,
+                onSetRecitationVolume = viewModel::setRecitationVolume,
+                onToggleAutoPlayNextAyah = viewModel::setAutoPlayNextAyah,
+                onUpdateAmbientSound = viewModel::updateAmbientSound,
+                onDismiss = { showAudioStudioSheet = false }
+            )
         }
     }
 }

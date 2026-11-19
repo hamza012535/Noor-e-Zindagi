@@ -23,8 +23,10 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,6 +56,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.audio.AudioPlaybackState
 import com.example.data.corpus.SunnahRoutineRepository
 import com.example.model.SunnahActivity
 import com.example.model.SunnahTimeSlot
@@ -69,6 +72,8 @@ import com.example.ui.viewmodel.NoorUiSnapshot
 @Composable
 fun SunnahRoutineScreen(
     uiState: NoorUiSnapshot,
+    audioState: AudioPlaybackState,
+    onPlayAudioWithUrdu: (String, String, String?, String?, String) -> Unit,
     onToggleChecklist: (String) -> Unit,
     onToggleBookmark: (String, String, String, String, String) -> Unit,
     onAddCustomActivity: (String, String, String, String) -> Unit,
@@ -395,6 +400,27 @@ fun SunnahRoutineScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(if (checked) "Completed Today" else "Mark Complete")
+                        }
+                        if (detail.urduTranslation.isNotBlank()) {
+                            val sunnahAudioId = "sunnah_${detail.id}"
+                            val isPlaying = audioState.activeId == sunnahAudioId && audioState.isPlaying
+                            IconButton(
+                                onClick = {
+                                    onPlayAudioWithUrdu(
+                                        sunnahAudioId,
+                                        detail.titleEn,
+                                        null,
+                                        null,
+                                        detail.urduTranslation
+                                    )
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                                    contentDescription = "Listen to Urdu translation"
+                                )
+                            }
                         }
                         IconButton(
                             onClick = {

@@ -86,7 +86,12 @@ data class AyahData(
     val translatorUr: String,
     val audioUrl: String,
     val words: List<WordMeaning> = emptyList()
-)
+) {
+    val urduAudioUrl: String?
+        get() = if (globalAyahNumber in 1..6236) {
+            "https://cdn.islamic.network/quran/audio/64/ur.khan/$globalAyahNumber.mp3"
+        } else null
+}
 
 enum class HadithAuthenticity(val label: String, val badgeNote: String) {
     SAHIH("Sahih", "Authentic narration meeting strict chain & text criteria"),
