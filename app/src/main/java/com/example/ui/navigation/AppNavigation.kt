@@ -89,7 +89,9 @@ import com.example.ui.screens.SunnahRoutineScreen
 import com.example.ui.theme.NoorEZindagiTheme
 import com.example.ui.viewmodel.NoorViewModel
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 object NoorRoutes {
@@ -128,7 +130,10 @@ fun NoorRootApp() {
     val app = context.applicationContext as Application
     val prefsStore = remember { UserPreferencesDataStore(app) }
     val prefs by prefsStore.preferencesFlow.collectAsStateWithLifecycle(initialValue = UserPreferencesState())
-    val currentUser by remember { Firebase.auth.authStateFlow() }.collectAsStateWithLifecycle(initialValue = Firebase.auth.currentUser)
+    val firebaseReady = remember(app) { FirebaseApp.getApps(app).isNotEmpty() }
+    val currentUser by remember(firebaseReady) {
+        if (firebaseReady) Firebase.auth.authStateFlow() else flowOf(null)
+    }.collectAsStateWithLifecycle(initialValue = if (firebaseReady) Firebase.auth.currentUser else null)
 
     val credentialManager = remember { CredentialManager.create(context) }
     val scope = rememberCoroutineScope()

@@ -19,6 +19,7 @@ import com.example.model.ReminderConfigDoc
 import com.example.model.UserProfileDoc
 import com.example.notifications.ReminderScheduler
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot
@@ -38,28 +39,39 @@ import org.json.JSONObject
 import java.util.UUID
 
 class UserSyncRepository(
-    private val db: FirebaseFirestore,
+    private val dbOrNull: FirebaseFirestore?,
     private val noorDao: NoorDao,
-    private val auth: FirebaseAuth = Firebase.auth
+    private val authOrNull: FirebaseAuth? = null
 ) {
     constructor(context: Context, noorDao: NoorDao) : this(
-        db = FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        ),
-        noorDao = noorDao
+        dbOrNull = if (FirebaseApp.getApps(context.applicationContext).isNotEmpty()) {
+            FirebaseFirestore.getInstance(
+                context.applicationContext.getString(R.string.firestore_database_id)
+            )
+        } else null,
+        noorDao = noorDao,
+        authOrNull = if (FirebaseApp.getApps(context.applicationContext).isNotEmpty()) {
+            Firebase.auth
+        } else null
     )
+
+    private val db: FirebaseFirestore
+        get() = dbOrNull ?: throw IllegalStateException("Cloud sync requires Firebase configuration.")
+
+    private val auth: FirebaseAuth
+        get() = authOrNull ?: throw IllegalStateException("Firebase Auth requires Firebase configuration.")
 
     companion object {
         const val ADMIN_EMAIL = "hamzaanxari0786@gmail.com"
     }
 
     fun isCurrentUserAdmin(): Boolean {
-        val user = auth.currentUser ?: return false
+        val user = authOrNull?.currentUser ?: return false
         return user.email.equals(ADMIN_EMAIL, ignoreCase = true) && user.isEmailVerified
     }
 
     private fun requireUserId(): String {
-        return auth.currentUser?.uid
+        return authOrNull?.currentUser?.uid
             ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
     }
 
