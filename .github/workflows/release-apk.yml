@@ -28,13 +28,22 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
 
       - name: Restore signing keystore for Firebase Auth compatibility
-        run: base64 -d debug.keystore.base64 > debug.keystore
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            echo "::warning::debug.keystore.base64 not found; generating fallback debug.keystore (Google Sign-In will need this keystore SHA-1)."
+            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
       - name: Build signed APK
         run: gradle :app:assembleDebug --no-daemon
