@@ -1,0 +1,56 @@
+name: Build & Release APK for Komi Store
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to create or update on GitHub Releases"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Restore signing keystore for Firebase Auth compatibility
+        run: base64 -d debug.keystore.base64 > debug.keystore
+
+      - name: Build signed APK
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Copy APK with clean release filename
+        run: cp app/build/outputs/apk/debug/app-debug.apk Noor-e-Zindagi.apk
+
+      - name: Upload APK build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Noor-e-Zindagi-apk
+          path: Noor-e-Zindagi.apk
+
+      - name: Publish GitHub Release for Komi Store
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: "Noor-e-Zindagi (${{ inputs.release_tag || github.ref_name }})"
+          files: Noor-e-Zindagi.apk

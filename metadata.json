@@ -1,0 +1,6 @@
+{
+  "name": "Noor-e-Zindagi",
+  "description": "Daily Sunnah & Deen Companion featuring verified Quran, Hadith, Azkar, Salah times, Islamic calendar, habit tracking, and AI Islamic guidance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

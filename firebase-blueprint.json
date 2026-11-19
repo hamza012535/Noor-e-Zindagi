@@ -1,0 +1,144 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User preferences, location settings, streak, and profile metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Authenticated Firebase UID" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "email": { "type": "string", "description": "User email address (PII)" },
+        "preferredLanguage": { "type": "string", "enum": ["en", "ur", "roman_ur"] },
+        "arabicFontScale": { "type": "number" },
+        "translationFontScale": { "type": "number" },
+        "darkReadingMode": { "type": "boolean" },
+        "calculationMethod": { "type": "integer" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "locationName": { "type": "string" },
+        "missedPrayersEnabled": { "type": "boolean" },
+        "currentStreak": { "type": "integer" },
+        "lastActiveDate": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "FieldValue.serverTimestamp()" }
+      },
+      "required": ["userId", "displayName", "preferredLanguage", "createdAt", "updatedAt"]
+    },
+    "ChecklistDay": {
+      "title": "ChecklistDay",
+      "description": "Daily Sunnah, Salah, and Fasting completion record keyed by YYYY-MM-DD.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "dateKey": { "type": "string" },
+        "completedIds": { "type": "array" },
+        "missedPrayerIds": { "type": "array" },
+        "fastingCompleted": { "type": "boolean" },
+        "totalItems": { "type": "integer" },
+        "completionPercent": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "dateKey", "completedIds", "missedPrayerIds", "fastingCompleted", "totalItems", "completionPercent", "createdAt", "updatedAt"]
+    },
+    "BookmarkItem": {
+      "title": "BookmarkItem",
+      "description": "Saved bookmark for Quran Ayah, Hadith, Sunnah activity, or Dua.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "itemType": { "type": "string", "enum": ["quran", "hadith", "sunnah", "dua"] },
+        "refId": { "type": "string" },
+        "title": { "type": "string" },
+        "arabicText": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "itemType", "refId", "title", "createdAt", "updatedAt"]
+    },
+    "CustomActivity": {
+      "title": "CustomActivity",
+      "description": "User-created personal daily Sunnah or worship habit.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "timeSlot": { "type": "string", "enum": ["waking", "morning", "leaving", "daily", "prayer", "evening", "sleeping"] },
+        "recommendedTime": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "timeSlot", "createdAt", "updatedAt"]
+    },
+    "ReminderConfig": {
+      "title": "ReminderConfig",
+      "description": "User worship reminder schedule and sound preference.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "category": { "type": "string" },
+        "title": { "type": "string" },
+        "hour": { "type": "integer" },
+        "minute": { "type": "integer" },
+        "enabled": { "type": "boolean" },
+        "frequency": { "type": "string", "enum": ["daily", "weekdays", "fridays"] },
+        "soundType": { "type": "string", "enum": ["adhan", "chime", "silent"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "category", "title", "hour", "minute", "enabled", "frequency", "soundType", "createdAt", "updatedAt"]
+    },
+    "CommunityContent": {
+      "title": "CommunityContent",
+      "description": "Admin-verified religious content and human-reviewed OCR submissions.",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "contentType": { "type": "string", "enum": ["sunnah", "dua", "quran_ref", "hadith", "ocr_poster", "reminder"] },
+        "category": { "type": "string" },
+        "title": { "type": "string" },
+        "arabicText": { "type": "string" },
+        "romanUrdu": { "type": "string" },
+        "urduTranslation": { "type": "string" },
+        "englishTranslation": { "type": "string" },
+        "referenceSource": { "type": "string" },
+        "grading": { "type": "string" },
+        "ocrExtractedText": { "type": "string" },
+        "verificationNotes": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "verifiedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorId", "contentType", "category", "title", "referenceSource", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profile and preferences."
+    },
+    "/users/{userId}/checklist/{dateKey}": {
+      "schema": { "$ref": "#/entities/ChecklistDay" },
+      "description": "Daily Sunnah and Salah completion tracking per date."
+    },
+    "/users/{userId}/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/BookmarkItem" },
+      "description": "User bookmarks across Quran, Hadith, Sunnah, and Duas."
+    },
+    "/users/{userId}/customActivities/{activityId}": {
+      "schema": { "$ref": "#/entities/CustomActivity" },
+      "description": "User-defined custom daily Sunnah activities."
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/ReminderConfig" },
+      "description": "User notification schedules for worship."
+    },
+    "/communityContent/{contentId}": {
+      "schema": { "$ref": "#/entities/CommunityContent" },
+      "description": "Admin-approved Islamic educational content and OCR verification queue."
+    }
+  }
+}

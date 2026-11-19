@@ -1,0 +1,303 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'hamzaanxari0786@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+             data.preferredLanguage in ['en', 'ur', 'roman_ur'] &&
+             (!('arabicFontScale' in data) || (data.arabicFontScale is number && data.arabicFontScale >= 0.7 && data.arabicFontScale <= 2.5)) &&
+             (!('translationFontScale' in data) || (data.translationFontScale is number && data.translationFontScale >= 0.7 && data.translationFontScale <= 2.5)) &&
+             (!('darkReadingMode' in data) || data.darkReadingMode is bool) &&
+             (!('calculationMethod' in data) || (data.calculationMethod is int && data.calculationMethod >= 0 && data.calculationMethod <= 25)) &&
+             (!('latitude' in data) || (data.latitude is number && data.latitude >= -90 && data.latitude <= 90)) &&
+             (!('longitude' in data) || (data.longitude is number && data.longitude >= -180 && data.longitude <= 180)) &&
+             (!('locationName' in data) || (data.locationName is string && data.locationName.size() <= 120)) &&
+             (!('missedPrayersEnabled' in data) || data.missedPrayersEnabled is bool) &&
+             (!('currentStreak' in data) || (data.currentStreak is int && data.currentStreak >= 0 && data.currentStreak <= 100000)) &&
+             (!('lastActiveDate' in data) || (data.lastActiveDate is string && data.lastActiveDate.size() <= 20));
+    }
+
+    function isValidChecklistDay(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.dateKey is string && data.dateKey.size() >= 8 && data.dateKey.size() <= 20 &&
+             data.completedIds is list && data.completedIds.size() <= 120 &&
+             (data.completedIds.size() == 0 || data.completedIds[0] is string) &&
+             data.missedPrayerIds is list && data.missedPrayerIds.size() <= 20 &&
+             (data.missedPrayerIds.size() == 0 || data.missedPrayerIds[0] is string) &&
+             data.fastingCompleted is bool &&
+             data.totalItems is int && data.totalItems >= 1 && data.totalItems <= 120 &&
+             data.completionPercent is int && data.completionPercent >= 0 && data.completionPercent <= 100;
+    }
+
+    function isValidBookmark(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.itemType in ['quran', 'hadith', 'sunnah', 'dua'] &&
+             data.refId is string && data.refId.size() >= 1 && data.refId.size() <= 120 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             (!('arabicText' in data) || (data.arabicText is string && data.arabicText.size() <= 2500)) &&
+             (!('subtitle' in data) || (data.subtitle is string && data.subtitle.size() <= 300));
+    }
+
+    function isValidCustomActivity(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.timeSlot in ['waking', 'morning', 'leaving', 'daily', 'prayer', 'evening', 'sleeping'] &&
+             (!('recommendedTime' in data) || (data.recommendedTime is string && data.recommendedTime.size() <= 40)) &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 400));
+    }
+
+    function isValidReminder(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 40 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             data.hour is int && data.hour >= 0 && data.hour <= 23 &&
+             data.minute is int && data.minute >= 0 && data.minute <= 59 &&
+             data.enabled is bool &&
+             data.frequency in ['daily', 'weekdays', 'fridays'] &&
+             data.soundType in ['adhan', 'chime', 'silent'];
+    }
+
+    function isValidCommunityContent(data) {
+      return data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+             data.contentType in ['sunnah', 'dua', 'quran_ref', 'hadith', 'ocr_poster', 'reminder'] &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             (!('arabicText' in data) || (data.arabicText is string && data.arabicText.size() <= 3000)) &&
+             (!('romanUrdu' in data) || (data.romanUrdu is string && data.romanUrdu.size() <= 2000)) &&
+             (!('urduTranslation' in data) || (data.urduTranslation is string && data.urduTranslation.size() <= 3000)) &&
+             (!('englishTranslation' in data) || (data.englishTranslation is string && data.englishTranslation.size() <= 3000)) &&
+             data.referenceSource is string && data.referenceSource.size() >= 1 && data.referenceSource.size() <= 300 &&
+             (!('grading' in data) || (data.grading is string && data.grading.size() <= 80)) &&
+             (!('ocrExtractedText' in data) || (data.ocrExtractedText is string && data.ocrExtractedText.size() <= 4000)) &&
+             (!('verificationNotes' in data) || (data.verificationNotes is string && data.verificationNotes.size() <= 1000)) &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             (!('verifiedBy' in data) || (data.verifiedBy is string && data.verifiedBy.size() <= 120));
+    }
+
+    match /admins/{adminUid} {
+      allow get: if isOwner(adminUid) || isAdmin();
+      allow list, create, update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'displayName', 'email', 'preferredLanguage',
+                         'arabicFontScale', 'translationFontScale', 'darkReadingMode',
+                         'calculationMethod', 'latitude', 'longitude', 'locationName',
+                         'missedPrayersEnabled', 'currentStreak', 'lastActiveDate',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'displayName', 'email', 'preferredLanguage',
+                         'arabicFontScale', 'translationFontScale', 'darkReadingMode',
+                         'calculationMethod', 'latitude', 'longitude', 'locationName',
+                         'missedPrayersEnabled', 'currentStreak', 'lastActiveDate',
+                         'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /checklist/{dateKey} {
+        allow get: if isOwner(userId) && isValidId(dateKey);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(dateKey) &&
+                         incoming().dateKey == dateKey &&
+                         incoming().keys().hasAll([
+                           'userId', 'dateKey', 'completedIds', 'missedPrayerIds',
+                           'fastingCompleted', 'totalItems', 'completionPercent',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'dateKey', 'completedIds', 'missedPrayerIds',
+                           'fastingCompleted', 'totalItems', 'completionPercent',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidChecklistDay(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(dateKey) &&
+                         isValidChecklistDay(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().dateKey == existing().dateKey &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'completedIds', 'missedPrayerIds', 'fastingCompleted',
+                           'totalItems', 'completionPercent', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(dateKey);
+      }
+
+      match /bookmarks/{bookmarkId} {
+        allow get: if isOwner(userId) && isValidId(bookmarkId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(bookmarkId) &&
+                         incoming().keys().hasAll(['userId', 'itemType', 'refId', 'title', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'itemType', 'refId', 'title', 'arabicText', 'subtitle', 'createdAt', 'updatedAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidBookmark(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(bookmarkId) &&
+                         isValidBookmark(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'arabicText', 'subtitle', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(bookmarkId);
+      }
+
+      match /customActivities/{activityId} {
+        allow get: if isOwner(userId) && isValidId(activityId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(activityId) &&
+                         incoming().keys().hasAll(['userId', 'title', 'timeSlot', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'title', 'timeSlot', 'recommendedTime', 'note', 'createdAt', 'updatedAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidCustomActivity(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(activityId) &&
+                         isValidCustomActivity(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'timeSlot', 'recommendedTime', 'note', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(activityId);
+      }
+
+      match /reminders/{reminderId} {
+        allow get: if isOwner(userId) && isValidId(reminderId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(reminderId) &&
+                         incoming().keys().hasAll(['userId', 'category', 'title', 'hour', 'minute', 'enabled', 'frequency', 'soundType', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'category', 'title', 'hour', 'minute', 'enabled', 'frequency', 'soundType', 'createdAt', 'updatedAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidReminder(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(reminderId) &&
+                         isValidReminder(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'hour', 'minute', 'enabled', 'frequency', 'soundType', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(reminderId);
+      }
+    }
+
+    match /communityContent/{contentId} {
+      allow get: if isSignedIn() && isValidId(contentId) &&
+                    (isAdmin() || existing().status == 'approved' || existing().authorId == request.auth.uid);
+
+      allow list: if isSignedIn() &&
+                     (isAdmin() || existing().status == 'approved' || existing().authorId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(contentId) &&
+                       incoming().authorId == request.auth.uid &&
+                       incoming().keys().hasAll(['authorId', 'contentType', 'category', 'title', 'referenceSource', 'status', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'authorId', 'contentType', 'category', 'title',
+                         'arabicText', 'romanUrdu', 'urduTranslation', 'englishTranslation',
+                         'referenceSource', 'grading', 'ocrExtractedText', 'verificationNotes',
+                         'status', 'verifiedBy', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidCommunityContent(incoming()) &&
+                       (isAdmin() || incoming().status == 'pending');
+
+      allow update: if isSignedIn() &&
+                       isValidId(contentId) &&
+                       isValidCommunityContent(incoming()) &&
+                       incoming().authorId == existing().authorId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       (
+                         (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+                           'contentType', 'category', 'title', 'arabicText', 'romanUrdu',
+                           'urduTranslation', 'englishTranslation', 'referenceSource', 'grading',
+                           'ocrExtractedText', 'verificationNotes', 'status', 'verifiedBy', 'updatedAt'
+                         ])) ||
+                         (existing().authorId == request.auth.uid &&
+                          existing().status == 'pending' &&
+                          incoming().status == 'pending' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'category', 'title', 'arabicText', 'romanUrdu',
+                            'urduTranslation', 'englishTranslation', 'referenceSource',
+                            'ocrExtractedText', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() &&
+                       isValidId(contentId) &&
+                       (isAdmin() || (existing().authorId == request.auth.uid && existing().status == 'pending'));
+    }
+  }
+}
